@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PickBansBS · Draft de ranked</title>
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#1b1340;--panel:#271c5c;--line:#3d2f85;--text:#f5f3ff;--mute:#a79fd6;--yel:#ffc72c;--blue:#2ec4f1;--red:#ff4d5e;--ok:#5be28a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:500 15px/1.5 Nunito,system-ui,sans-serif}
+h1,h2,h3{font-family:"Lilita One",Impact,sans-serif;font-weight:400;margin:0;letter-spacing:.02em}
+header{padding:18px 24px 0;max-width:1240px;margin:auto}
+h1{font-size:30px;color:var(--yel);text-shadow:0 3px 0 #000a}
+main{padding:14px 24px 28px;max-width:1240px;margin:auto}
+.ctrl{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+select,input{font:inherit;background:var(--panel);color:var(--text);border:2px solid var(--line);border-radius:10px;padding:8px 10px}
+.act{font-family:"Lilita One",sans-serif;background:var(--panel);color:var(--text);border:2px solid var(--line);border-radius:10px;padding:8px 14px;cursor:pointer}
+select:focus-visible,input:focus-visible,.act:focus-visible,.b:focus-visible,.slot:focus-visible,.sug:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.layout{display:grid;grid-template-columns:1fr 340px;gap:20px}
+@media(max-width:860px){.layout{grid-template-columns:1fr}}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(68px,1fr));gap:8px}
+.b{background:var(--panel);border:2px solid var(--line);border-radius:12px;padding:4px;cursor:pointer;color:var(--text);font-size:11px;text-align:center;overflow:hidden}
+.b img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;display:block}
+.b[disabled]{opacity:.25;cursor:not-allowed}
+.side{display:flex;flex-direction:column;gap:14px;align-self:start}
+.card{background:var(--panel);border-radius:16px;padding:14px}
+.turn{font-family:"Lilita One";font-size:20px;margin-bottom:4px}
+.team h3{font-size:18px}.A h3{color:var(--blue)}.B h3{color:var(--red)}
+.sub{font-size:12px;color:var(--mute);margin-top:8px}
+.slots{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:4px}
+.slot{font:inherit;background:none;color:var(--mute);cursor:pointer;aspect-ratio:1;border:2px dashed var(--line);border-radius:10px;display:grid;place-items:center;font-size:12px;overflow:hidden;position:relative;padding:0}
+.slot img{width:100%;height:100%;object-fit:cover}
+.slot.ban img{filter:grayscale(1);opacity:.55}
+.slot.ban.filled::after{content:"✕";position:absolute;color:var(--red);font:700 28px "Lilita One"}
+.slot.now{border-style:solid;border-color:var(--yel);color:var(--yel)}
+.sug{display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:center;width:100%;text-align:left;font:inherit;color:var(--text);background:var(--bg);border:2px solid var(--line);border-radius:12px;padding:6px 8px;margin-top:6px;cursor:pointer}
+.sug img{width:44px;height:44px;border-radius:8px;object-fit:cover}
+.sug .n{font-weight:700}.sug small{color:var(--mute);display:block}
+.sug .wr{font-family:"Lilita One";font-size:20px;color:var(--ok)}
+.sug.low .wr{color:var(--mute)}
+.msg{color:var(--mute)}.err{color:var(--red)}
+.info{font-size:12px;color:var(--mute);margin-top:18px}
+.ph{display:grid;place-items:center;aspect-ratio:1;background:var(--line);border-radius:8px;font-size:10px;padding:2px;word-break:break-all}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<header><h1>PickBansBS</h1></header>
+<main>
+  <div class="ctrl">
+    <select id="mode" aria-label="Modo"></select>
+    <select id="map" aria-label="Mapa"></select>
+    <input id="q" type="search" placeholder="Buscar brawler" aria-label="Buscar brawler">
+    <button class="act" id="undo">Deshacer</button>
+    <button class="act" id="reset">Reiniciar</button>
+  </div>
+  <p id="status" class="msg">Cargando estadísticas…</p>
+  <div class="layout" id="app" hidden>
+    <div><div id="grid" class="grid"></div></div>
+    <aside class="side">
+      <div class="card"><div class="turn" id="turn"></div><div class="msg" id="turnSub"></div></div>
+      <div class="card" id="sugBox"></div>
+      <div class="card team A"><h3>Equipo A (pick 1)</h3>
+        <div class="sub">Bans</div><div class="slots" id="bansA"></div>
+        <div class="sub">Picks</div><div class="slots" id="picksA"></div></div>
+      <div class="card team B"><h3>Equipo B</h3>
+        <div class="sub">Bans</div><div class="slots" id="bansB"></div>
+        <div class="sub">Picks</div><div class="slots" id="picksB"></div></div>
+    </aside>
+  </div>
+  <p class="info" id="info"></p>
+</main>
+
+<script>
+/* ===== CONFIG ===== */
+const DATA_URL = "data/stats.json";
+const API_BASES = ["https://api.brawlapi.com/v1", "https://brawlapi.com/v1"]; // lista de brawlers e imágenes
+const CDN = id => "https://cdn.brawlify.com/brawlers/borderless/" + id + ".png"; // respaldo si la API no responde
+const MODES = {gemGrab:"Gem Grab", brawlBall:"Brawl Ball", knockout:"Knockout", bounty:"Bounty", hotZone:"Hot Zone", heist:"Heist"};
+const PICK_SEQ = ["A","B","B","A","A","B"];   // picks en serpiente
+/* Suavizado del winrate (dos niveles, hacia 50 % -> promedio del modo -> mapa).
+   K = "picks virtuales" del prior: más grande = confía menos en pocos datos. */
+const K_MODE = 30, K_MAP = 20, MIN_PICKS = 10; // MIN_PICKS: bajo este valor se marca "pocos datos"
+const N_SUG = 8;
+/* ================== */
+
+const $ = q => document.querySelector(q);
+const other = t => t === "A" ? "B" : "A";
+const state = {stats:null, api:new Map(), mode:null, map:null,
+  bans:{A:[null,null,null], B:[null,null,null]}, picks:Array(6).fill(null),
+  sel:{kind:"ban",team:"A",i:0}, hist:[]};
+
+/* ---------- slots ---------- */
+const getSlot = s => s.kind === "ban" ? state.bans[s.team][s.i] : state.picks[s.n];
+const setSlot = (s,v) => { if(s.kind === "ban") state.bans[s.team][s.i] = v; else state.picks[s.n] = v; };
+const sameSlot = (a,b) => a && b && a.kind === b.kind && (a.kind === "ban" ? a.team === b.team && a.i === b.i : a.n === b.n);
+const banSlots = t => [0,1,2].map(i => ({kind:"ban",team:t,i}));
+const pickSlots = () => PICK_SEQ.map((_,n) => ({kind:"pick",n}));
+const isEmpty = s => !getSlot(s);
+function nextSel(from){
+  const c = from.kind === "ban"
+    ? [...banSlots(from.team), ...banSlots(other(from.team)), ...pickSlots()]
+    : [...pickSlots().filter(x => x.n > from.n), ...pickSlots().filter(x => x.n < from.n), ...banSlots("A"), ...banSlots("B")];
+  return c.find(isEmpty) || null;
+}
+
+/* ---------- brawlers ---------- */
+function pool(){
+  const m = new Map();
+  state.api.forEach((v,id) => m.set(id, {id, name:v.name}));
+  state.stats.maps.forEach(mp => mp.brawlers.forEach(b => { if(!m.has(b.id)) m.set(b.id, {id:b.id, name:b.name}); }));
+  return [...m.values()].sort((a,b) => a.name.localeCompare(b.name));
+}
+const imgUrl = id => (state.api.get(id) && state.api.get(id).img) || CDN(id);
+function imgTag(b, cls){
+  const alt = (b.name || "").replace(/"/g, "");
+  return `<img src="${imgUrl(b.id)}" alt="${alt}" ${cls ? `class="${cls}"` : ""} loading="lazy" onerror="this.outerHTML='<div class=ph>${alt}</div>'">`;
+}
+
+/* ---------- estadísticas y sugerencia ---------- */
+function scorer(){
+  const maps = state.stats.maps.filter(m => m.mode === state.mode);
+  const agg = new Map();
+  maps.forEach(m => m.brawlers.forEach(b => {
+    const a = agg.get(b.id) || {p:0, w:0}; a.p += b.picks; a.w += b.wins; agg.set(b.id, a);
+  }));
+  const cur = maps.find(m => m.map === state.map);
+  const here = new Map((cur ? cur.brawlers : []).map(b => [b.id, b]));
+  return id => {
+    const a = agg.get(id) || {p:0, w:0};
+    const prior = (a.w + K_MODE * 0.5) / (a.p + K_MODE);
+    const h = here.get(id) || {picks:0, wins:0};
+    return {score:(h.wins + K_MAP * prior) / (h.picks + K_MAP), picks:h.picks, raw:h.picks ? h.wins / h.picks : null};
+  };
+}
+const usedIds = () => new Set([...state.bans.A, ...state.bans.B, ...state.picks].filter(Boolean).map(b => b.id));
+const pct = x => (x * 100).toFixed(1) + " %";
+
+/* ---------- selectores ---------- */
+function fillModes(){
+  const present = [...new Set(state.stats.maps.map(m => m.mode))];
+  const order = Object.keys(MODES).filter(k => present.includes(k)).concat(present.filter(k => !MODES[k]));
+  $("#mode").innerHTML = order.map(k => `<option value="${k}">${MODES[k] || k}</option>`).join("");
+  state.mode = order[0] || null;
+  fillMaps();
+}
+function fillMaps(){
+  const list = state.stats.maps.filter(m => m.mode === state.mode).sort((a,b) => b.battles - a.battles);
+  $("#map").innerHTML = list.map(m => `<option value="${m.map}">${m.map} (${m.battles} batallas)</option>`).join("");
+  state.map = list[0] ? list[0].map : null;
+}
+
+/* ---------- render ---------- */
+function slotBtn(s, label){
+  const b = getSlot(s), cls = ["slot", s.kind === "ban" ? "ban" : "", b ? "filled" : "", sameSlot(s, state.sel) ? "now" : ""].join(" ");
+  const d = s.kind === "ban" ? `data-k="ban" data-t="${s.team}" data-i="${s.i}"` : `data-k="pick" data-n="${s.n}"`;
+  return `<button class="${cls}" ${d} aria-label="${label}">${b ? imgTag(b) : label}</button>`;
+}
+
+function render(){
+  if(!state.stats) return;
+  const used = usedIds(), q = $("#q").value.trim().toLowerCase();
+  $("#grid").innerHTML = pool().filter(b => b.name.toLowerCase().includes(q)).map(b =>
+    `<button class="b" data-id="${b.id}" data-name="${b.name.replace(/"/g,"")}" ${used.has(b.id) || !state.sel ? "disabled" : ""}>${imgTag(b)}${b.name}</button>`).join("");
+
+  ["A","B"].forEach(t => {
+    $("#bans" + t).innerHTML = banSlots(t).map(s => slotBtn(s, "Ban")).join("");
+    $("#picks" + t).innerHTML = pickSlots().filter(s => PICK_SEQ[s.n] === t).map(s => slotBtn(s, "#" + (s.n + 1))).join("");
+  });
+
+  const s = state.sel;
+  $("#turn").textContent = !s ? "Draft completo" : s.kind === "ban" ? "Fase de bans" : `Pick #${s.n + 1}: Equipo ${PICK_SEQ[s.n]}`;
+  $("#turnSub").textContent = !s ? "" : s.kind === "ban" ? "Los 6 bans van a la vez, sin orden." : "";
+
+  const box = $("#sugBox");
+  if(!s || s.kind !== "pick"){ box.innerHTML = `<h3>Mejor siguiente pick</h3><p class="msg">${!s ? "Draft completo." : "Aparece cuando llegues a la fase de picks."}</p>`; return; }
+  if(!state.map){ box.innerHTML = `<h3>Mejor siguiente pick</h3><p class="msg">Elige un mapa.</p>`; return; }
+  const sc = scorer();
+  const rows = pool().filter(b => !used.has(b.id)).map(b => ({b, ...sc(b.id)})).sort((x,y) => y.score - x.score).slice(0, N_SUG);
+  box.innerHTML = `<h3>Mejor siguiente pick · Equipo ${PICK_SEQ[s.n]}</h3>
+    <div class="sub">Winrate suavizado en ${state.map}</div>` + rows.map(r => `
+    <button class="sug ${r.picks < MIN_PICKS ? "low" : ""}" data-id="${r.b.id}" data-name="${r.b.name.replace(/"/g,"")}">
+      ${imgTag(r.b)}<span class="n">${r.b.name}<small>${r.raw === null ? "sin datos en este mapa" : `crudo ${pct(r.raw)} · ${r.picks} picks${r.picks < MIN_PICKS ? " · pocos datos" : ""}`}</small></span>
+      <span class="wr">${pct(r.score)}</span></button>`).join("");
+}
+
+function renderInfo(){
+  const s = state.stats.sample || {};
+  const f = state.stats.generatedAt ? new Date(state.stats.generatedAt).toLocaleString("es-CO") : "—";
+  $("#info").textContent = `Datos generados: ${f} · ${s.rankedBattles ?? "?"} batallas ranked en ventana de ${s.windowDays ?? "?"} días · ${s.players ?? "?"} jugadores en la muestra (${s.failedPlayers ?? 0} fallidos).`;
+}
+
+/* ---------- acciones ---------- */
+function assign(id, name){
+  if(!state.sel) return;
+  const s = state.sel;
+  state.hist.push({s:{...s}, prev:getSlot(s)});
+  setSlot(s, {id:+id, name});
+  state.sel = nextSel(s);
+  render();
+}
+$("#grid").addEventListener("click", e => { const b = e.target.closest(".b"); if(b && !b.disabled) assign(b.dataset.id, b.dataset.name); });
+$("#sugBox").addEventListener("click", e => { const b = e.target.closest(".sug"); if(b) assign(b.dataset.id, b.dataset.name); });
+document.querySelector(".side").addEventListener("click", e => {
+  const sl = e.target.closest(".slot");
+  if(!sl) return;
+  state.sel = sl.dataset.k === "ban" ? {kind:"ban", team:sl.dataset.t, i:+sl.dataset.i} : {kind:"pick", n:+sl.dataset.n};
+  render();
+});
+$("#undo").onclick = () => { const h = state.hist.pop(); if(h){ setSlot(h.s, h.prev); state.sel = h.s; render(); } };
+$("#reset").onclick = () => {
+  state.bans = {A:[null,null,null], B:[null,null,null]}; state.picks = Array(6).fill(null);
+  state.hist = []; state.sel = {kind:"ban", team:"A", i:0}; render();
+};
+$("#q").oninput = render;
+$("#mode").onchange = e => { state.mode = e.target.value; fillMaps(); render(); };
+$("#map").onchange = e => { state.map = e.target.value; render(); };
+
+/* ---------- carga ---------- */
+async function loadApi(){
+  for(const base of API_BASES){
+    try{
+      const r = await fetch(base + "/brawlers");
+      if(!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json();
+      (j.list || j).filter(b => b.released !== false).forEach(b => state.api.set(b.id, {name:b.name, img:b.imageUrl2 || b.imageUrl}));
+      render(); return;
+    }catch(e){ console.warn("BrawlAPI no disponible en", base, e); }
+  }
+}
+async function init(){
+  const st = $("#status");
+  try{
+    const r = await fetch(DATA_URL, {cache:"no-cache"});
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    state.stats = await r.json();
+    if(!Array.isArray(state.stats.maps)) throw new Error("stats.json sin lista 'maps'");
+  }catch(e){
+    st.className = "err";
+    st.textContent = "No se pudo leer " + DATA_URL + " (" + e.message + "). Si abriste el archivo con doble clic, sírvelo con un servidor local o GitHub Pages.";
+    console.error(e); return;
+  }
+  st.hidden = true; $("#app").hidden = false;
+  fillModes(); renderInfo(); render(); loadApi();
+}
+init();
+</script>
+</body>
+</html>
