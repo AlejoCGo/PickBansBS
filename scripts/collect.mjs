@@ -8,6 +8,7 @@ const KEY = process.env.BRAWL_API_KEY;
 const TOP = Math.min(Number(process.env.TOP_PLAYERS || 200), 200);
 const DELAY_MS = Number(process.env.DELAY_MS || 300);
 const RANKED_TYPES = new Set(["soloRanked", "ranked"]);
+const MODES = new Set(["gemGrab", "brawlBall", "knockout", "bounty", "hotZone", "heist"]);
 
 if (!KEY) {
   console.error("Falta BRAWL_API_KEY");
@@ -68,6 +69,10 @@ for (const p of players) {
 
     const mode = it.event?.mode || b.mode || "unknown";
     const map = it.event?.map || "unknown";
+        if (!MODES.has(mode) || map === "unknown") continue;
+    // Descarta eventos donde todos juegan el mismo brawler (como los de Thunder Frogs).
+    const brawlerIds = new Set(b.teams.flat().map((x) => x.brawler?.id));
+    if (brawlerIds.size === 1) continue;
     const mk = `${mode}|${map}`;
     maps[mk] ??= { mode, map, battles: 0, brawlers: {} };
     maps[mk].battles++;
