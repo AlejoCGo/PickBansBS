@@ -12,6 +12,9 @@ const WINDOW_DAYS = Number(process.env.WINDOW_DAYS || 14);
 const RANKED_TYPES = new Set(["soloRanked", "ranked"]);
 const MODES = new Set(["gemGrab", "brawlBall", "knockout", "bounty", "hotZone", "heist"]);
 const STATE_PATH = "data/state.json";
+// Brawlers que solo se pueden jugar en el evento y no en el ranked real (separados por coma).
+// Cualquier batalla donde aparezca uno se descarta. Thunder Frogs = 16000111. Déjalo vacío cuando ya se pueda usar en ranked.
+const EXCLUDE = new Set((process.env.EXCLUDE_BRAWLER_IDS ?? "16000111").split(",").map((x) => Number(x.trim())).filter(Boolean));
 const MIN_PAIR_GAMES = Number(process.env.MIN_PAIR_GAMES || 2); // pares con menos partidas no se publican en stats.json
 
 if (!KEY) {
@@ -64,6 +67,12 @@ console.log(`Jugadores en la muestra: ${players.length}`);
 
 let newBattles = 0;
 let failed = 0;
+let excluded = 0;
+// Diagnóstico temporal: ayuda a ver qué distingue las batallas del evento de las de ranked real.
+const diag = { types: {}, groups: {}, samples: [] };
+const diagSeen = new Set();
+let tfSamples = 0;
+let otherSamples = 0;
 
 for (const p of players) {
   let log;
@@ -78,6 +87,7 @@ for (const p of players) {
 
   for (const it of log.items || []) {
     const b = it.battle;
+    if (b) diag.types[b.type ?? "?"] = (diag.types[b.type ?? "?"] || 0) + 1;
     if (!b || !RANKED_TYPES.has(b.type) || !b.teams) continue;
     if (b.result !== "victory" && b.result !== "defeat") continue;
 
@@ -96,6 +106,20 @@ for (const p of players) {
     // La misma partida sale en el historial de sus 6 jugadores: se cuenta una sola vez.
     const allTags = everyone.map((x) => x.tag).sort();
     const hash = createHash("sha1").update(`${t}|${allTags.join(",")}`).digest("hex").slice(0, 12);
+
+    // Diagnóstico: cuenta cada partida una sola vez por ejecución, aunque ya esté en "seen".
+    const hasExcluded = everyone.some((x) => EXCLUDE.has(x.brawler?.id));
+    if (!diagSeen.has(hash)) {
+      diagSeen.add(hash);
+      const key = `${b.type}|${mode}|evento ${it.event?.id ?? "?"}|${map}`;
+      const g = (diag.groups[key] ??= { n: 0, conExcluidos: 0 });
+      g.n++;
+      if (hasExcluded) g.conExcluidos++;
+      if (diag.samples.length < 6 && (hasExcluded ? tfSamples++ < 3 : otherSamples++ < 3)) {
+        diag.samples.push({ conExcluidos: hasExcluded, event: it.event, battle: { ...b, teams: undefined } });
+      }
+    }
+    if (hasExcluded) { excluded++; continue; }
     if (state.seen[hash]) continue;
 
     // El resultado es del jugador dueño del historial: buscamos su equipo.
@@ -204,9 +228,16 @@ const out = {
     newBattles,
     rankedBattles: totalBattles,
     pairMinGames: MIN_PAIR_GAMES,
+    excludedBattles: excluded,
   },
   maps,
   pairs,
+  // Temporal: se quita cuando sepamos cómo separar el evento del ranked real.
+  diagnostic: {
+    types: diag.types,
+    groups: Object.entries(diag.groups).sort((a, b) => b[1].n - a[1].n).slice(0, 40),
+    samples: diag.samples,
+  },
 };
 
 mkdirSync("data", { recursive: true });
